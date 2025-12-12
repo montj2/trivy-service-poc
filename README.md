@@ -1,6 +1,6 @@
 # Trivy FS Scan API (PoC)
 
-A containerized FastAPI service that scans a single binary file using `trivy fs`, persists the raw JSON output, and returns a policy-based decision (ALLOW, REVIEW, or BLOCK).
+A containerized FastAPI service that scans binary artifacts using a **Hybrid Scan Engine**. It dynamically selects the best strategy—standard `trivy fs`, `trivy rootfs`, or auto-extraction—to detect vulnerabilities in "bare" files (JARs, Archives) and project directories.
 
 ## Architecture Overview
 
@@ -8,7 +8,11 @@ A containerized FastAPI service that scans a single binary file using `trivy fs`
 2.  **Service**:
     *   Validates the path is within `ALLOWED_SCAN_ROOTS`.
     *   Computes the SHA-256 hash of the file.
-    *   Executes `trivy fs` (via subprocess) against the target file.
+    *   **Scan Engine**: Determines the artifact type:
+        *   **Standard FS**: For text files, lockfiles, and directories.
+        *   **Hybrid RootFS**: For bare Java artifacts (`.jar`, `.war`, `.ear`).
+        *   **Auto-Extraction**: For compressed packages (`.tgz`, `.whl`).
+    *   Executes the appropriate Trivy command logic.
     *   Persists the raw Trivy JSON output to `RAW_OUTPUT_DIR`.
     *   Parses the results and applies tollgate logic (Decision Engine).
 3.  **Client** receives a JSON summary including the decision, counts, and scan metadata.
@@ -58,7 +62,7 @@ curl http://localhost:8080/healthz
 
 ```json
 {
-  "path": "/mnt/artifacts/app.exe",
+  "path": "/mnt/artifacts/log4j-core-2.12.1.jar",
   "severity": ["HIGH", "CRITICAL"],
   "scanners": ["vuln", "secret"]
 }
@@ -68,7 +72,7 @@ curl http://localhost:8080/healthz
 To include everything (including LOW and UNKNOWN):
 ```json
 {
-  "path": "/mnt/artifacts/app.exe",
+  "path": "/mnt/artifacts/lodash-4.17.15.tgz",
   "severity": ["UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"],
   "scanners": ["vuln", "secret"]
 }
@@ -77,21 +81,21 @@ To include everything (including LOW and UNKNOWN):
 ### Sample Response
 ```json
 {
-  "scan_id": "550e8400-e29b-41d4-a716-446655440000",
+  "scan_id": "bd69cbb9-1d0f-4505-bb61-ec16ff934bba",
   "target": {
-    "path": "/mnt/artifacts/app.exe",
-    "sha256": "e3b0c442...",
-    "size_bytes": 10240
+    "path": "/mnt/artifacts/log4j-core-2.12.1.jar",
+    "sha256": "885e31a14fc71cb4849e93564d26a221c685a789379ef63cb2d082cedf3c2235",
+    "size_bytes": 1674433
   },
   "trivy": {
-    "version": "0.44.0",
+    "version": "0.68.1",
     "exit_code": 0,
-    "raw_json_path": "/mnt/out/trivy/550e8400-e29b-41d4-a716-446655440000.json"
+    "raw_json_path": "/mnt/out/trivy/bd69cbb9-1d0f-4505-bb61-ec16ff934bba.json"
   },
   "counts": {
     "vulnerabilities": {
-      "CRITICAL": 0,
-      "HIGH": 1,
+      "CRITICAL": 2,
+      "HIGH": 0,
       "MEDIUM": 0,
       "LOW": 0,
       "UNKNOWN": 0
@@ -100,13 +104,13 @@ To include everything (including LOW and UNKNOWN):
     "licenses": 0
   },
   "decision": {
-    "recommendation": "REVIEW",
-    "reasons": ["Found 1 HIGH vulnerabilities"]
+    "recommendation": "BLOCK",
+    "reasons": ["Found 2 CRITICAL vulnerabilities"]
   },
   "timing": {
-    "started_at": "2023-10-27T10:00:00.000Z",
-    "finished_at": "2023-10-27T10:00:05.000Z",
-    "duration_ms": 5000
+    "started_at": "2025-12-12T08:03:49.712598",
+    "finished_at": "2025-12-12T08:03:49.775007",
+    "duration_ms": 62
   }
 }
 ```

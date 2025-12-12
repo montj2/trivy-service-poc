@@ -76,7 +76,7 @@ graph LR
 | **Perf** | **Sequential Hashing** | Hashing happens before scan. Large files delay the start of the scan. | Stream hashing in parallel with the scan, or pipeline the reading. |
 | **Perf** | **Disk I/O** | Trivy writes to disk, then we read it back. Double I/O penalty. | For high throughput, investigate piping Trivy stdout directly to memory (though this loses the "raw persistence" requirement). |
 | **Dependency** | **Trivy Wrapper** | We rely on parsing Trivy's specific JSON structure. Updates to Trivy breaking the JSON schema will break our parser. | Pin Trivy versions in Dockerfile. Write contract tests against Trivy output samples. |
-| **Scope** | **Single File Only** | Cannot scan directories or archives recursively. | Extend `ScanEngine` to support tarball extraction or recursive directory traversal if requirements change. |
+| **Scope** | **Directory Scanning** | API accepts only file paths. Directories must be zipped first. | Extend `ScanEngine` (and security model) to allow recursive directory traversal. |
 
 ## 5. Development Guide
 
