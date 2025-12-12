@@ -22,6 +22,11 @@ graph LR
 - **Subprocess Execution**: We invoke `trivy` as a subprocess rather than using a library. This ensures we always use the official, updated binary logic and simplifies dependency management, though it adds process overhead.
 - **Sync/Async Hybrid**: The FastAPI layer is `async`, but file I/O and CPU-bound tasks (hashing, scanning) are executed in thread pools using `asyncio.to_thread` to prevent blocking the event loop.
 - **Persistence**: Raw Trivy output is persisted to disk immediately. The API filters and summarizes this data but never returns the full raw JSON to keep responses lightweight and readable.
+- **Database Management**:
+  - **Main DB (`trivy-db`)**: Vulnerability database for OS packages and lockfiles.
+  - **Java DB (`trivy-java-db`)**: Index database for detecting vulnerabilities in JAR/WAR files.
+  - **Pre-warming**: Both databases are downloaded during the Docker build to `/usr/share/trivy-baked`.
+  - **Runtime Seeding**: An `entrypoint.sh` script checks if the runtime volume (`/var/lib/trivy`) is empty. If so, it seeds it from the baked headers. This ensures the service works immediately without network dependency, while still allowing persistent updates if a volume is mounted.
 
 ## 2. Component Responsibilities
 
@@ -42,7 +47,9 @@ graph LR
   - Applies "Tollgate" logic to generate `BLOCK`/`REVIEW`/`ALLOW` decisions.
 - **`scanner.py` (The Muscle)**:
   - Wraps `subprocess.run`.
-  - Constructs the specific CLI flags for Trivy.
+  - **Hybrid Scanning**: Dynamically switches to `rootfs` mode for bare JAR/WAR/EAR files to ensure dependency inspection.
+  - **Auto-Extraction**: Detects compressed artifacts (`.tgz`, `.tar.gz`, `.whl`), securely extracts them to a temporary directory, and scans the expanded contents.
+  - Constructs specific CLI flags for Trivy.
   - Handles timeouts and error capturing.
 - **`hasher.py`**:
   - Computes SHA-256 validation hashes.

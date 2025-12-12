@@ -24,24 +24,24 @@ async def readyz():
     response_model=ScanResponse, 
     summary="Scan File",
     description="""
-    Performs a synchronous scan of a single file on disk.
-    
-    ### Request Body
-    - **path** (str): Absolute path to the file (must be within `ALLOWED_SCAN_ROOTS`).
-    - **scanners** (list): List of scanners to run.
-      - `vuln`: Vulnerability scanning
-      - `secret`: Secret scanning
-      - `license`: License scanning
-      - `misconfig`: Misconfiguration scanning
-    - **severity** (list): Severities to include.
-      - `CRITICAL`
-      - `HIGH`
-      - `MEDIUM`
-      - `LOW`
-      - `UNKNOWN`
-    - **timeout_seconds** (int): Max duration before aborting (default: 120).
-    - **ignore_unfixed** (bool): If true, ignores vulnerabilities without a fix.
-    """
+Performs a synchronous scan of a single file on disk.
+
+### Request Body
+- **path** (str): Absolute path to the file (must be within ALLOWED_SCAN_ROOTS).
+- **scanners** (list): List of scanners to run.
+  - vuln: Vulnerability scanning
+  - secret: Secret scanning
+  - license: License scanning
+  - misconfig: Misconfiguration scanning
+- **severity** (list): Severities to include.
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+  - LOW
+  - UNKNOWN
+- **timeout_seconds** (int): Max duration before aborting (default: 120).
+- **ignore_unfixed** (bool): If true, ignores vulnerabilities without a fix.
+"""
 )
 async def scan_fs(request: ScanRequest):
     try:

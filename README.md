@@ -111,8 +111,16 @@ To include everything (including LOW and UNKNOWN):
 }
 ```
 
+## Binary Artifact Support
+The service implements specialized logic to scan "bare" binary artifacts that are not part of a project structure:
+
+*   **Java (JAR/WAR/EAR)**: Scanned using `trivy rootfs` via a "Hybrid Scan" strategy to detect vulnerabilities in dependencies (e.g., inside `BOOT-INF/lib`).
+*   **NPM (.tgz) & PyPI (.whl)**: Automatically extracted to a temporary secure directory and scanned in expanded form to detect `package.json` and metadata vulnerabilities.
+*   **Other Binaries (EXE, RPM)**: Currently not supported directly (decision depends on generic Trivy capabilities for these formats).
+
 ## Known Limitations
 
 *   **Binary CVE Detection**: Identification of vulnerabilities in compiled binaries is best-effort and depends on Trivy's ability to analyze the specific binary format/metadata.
 *   **Security**: No authentication or extensive input sanitization beyond path validation (Internal PoC only).
-*   **Single File**: The API currently supports only single file scanning, not directories or images.
+*   **Single File**: The API currently supports only single file scanning (except for supported Archives which are auto-expanded).
+

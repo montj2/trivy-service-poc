@@ -28,6 +28,41 @@ def get_trivy_version() -> str:
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "unknown"
 
+import tarfile
+import zipfile
+import tempfile
+import shutil
+
+def extract_archive(archive_path: Path, target_dir: Path) -> bool:
+    """
+    Extracts supported archives (.tgz, .tar.gz, .whl) to target_dir.
+    Returns True if extracted, False if not supported or failed.
+    """
+    path_str = str(archive_path).lower()
+    
+    try:
+        if path_str.endswith(".tgz") or path_str.endswith(".tar.gz"):
+            with tarfile.open(archive_path, "r:gz") as tar:
+                # Security: Basic filter to prevent zip bombs/traversal 
+                # (tarfile.data_filter introduced in 3.12 is best, but defaulting to 'data' for safety)
+                if hasattr(tarfile, 'data_filter'):
+                    tar.extractall(path=target_dir, filter='data')
+                else:
+                    # Fallback for older python, though we are on 3.12 in Docker
+                    tar.extractall(path=target_dir) 
+            return True
+            
+        elif path_str.endswith(".whl"):
+            with zipfile.ZipFile(archive_path, "r") as zip_ref:
+                zip_ref.extractall(target_dir)
+            return True
+            
+    except (tarfile.TarError, zipfile.BadZipFile, OSError) as e:
+        logger.error(f"Failed to extract archive {archive_path}: {e}")
+        return False
+        
+    return False
+
 def run_trivy_scan(
     target_path: Path,
     output_path: Path,
@@ -41,9 +76,32 @@ def run_trivy_scan(
     Returns exit code.
     Raises TrivyScanError on timeout or execution failure.
     """
+    cmd_mode = "fs"
+    scan_target = str(target_path)
+    temp_extract_dir = None
+
+    # Determine if auto-extraction is needed
+    if target_path.name.lower().endswith((".tgz", ".tar.gz", ".whl")):
+        temp_extract_dir = tempfile.mkdtemp(prefix="trivy_extract_")
+        extract_success = extract_archive(target_path, Path(temp_extract_dir))
+        
+        if extract_success:
+            logger.info(f"Successfully extracted {target_path} to {temp_extract_dir}")
+            scan_target = temp_extract_dir
+            # Always use fs mode for extracted directories
+            cmd_mode = "fs" 
+        else:
+            logger.warning(f"Failed to extract {target_path}, falling back to direct file scan")
+            shutil.rmtree(temp_extract_dir, ignore_errors=True)
+            temp_extract_dir = None
+
+    # Existing logic: RootFS fallback for bare Java artifacts (only if NOT extracted)
+    elif target_path.suffix.lower() in [".jar", ".war", ".ear"]:
+        cmd_mode = "rootfs"
+
     cmd = [
         settings.TRIVY_BINARY_PATH,
-        "fs",
+        cmd_mode,
         "--format", "json",
         "--quiet",
         "--output", str(output_path),
@@ -55,16 +113,11 @@ def run_trivy_scan(
     if ignore_unfixed:
         cmd.append("--ignore-unfixed")
 
-    cmd.append(str(target_path))
+    cmd.append(scan_target)
 
     logger.info(f"Running trivy command: {' '.join(cmd)}")
 
     try:
-        # Using subprocess.run for simplicity since we want to block until done (or timeout)
-        # In an async context, we might want to run this in a thread executor if it blocks the event loop too long,
-        # but subprocess.run itself releases the GIL for the wait.
-        # However, for true async FastAPI, we should wrap this.
-        
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -84,3 +137,8 @@ def run_trivy_scan(
     except Exception as e:
         logger.error(f"Trivy execution failed: {e}")
         raise TrivyScanError(f"Trivy execution failed: {str(e)}")
+    finally:
+        # Cleanup extracted files if they were created
+        if temp_extract_dir and Path(temp_extract_dir).exists():
+            shutil.rmtree(temp_extract_dir, ignore_errors=True)
+            logger.info(f"Cleaned up temporary extraction directory: {temp_extract_dir}")

@@ -10,7 +10,7 @@ services:
       - ./output:/mnt/out
       - trivy-cache:/var/lib/trivy
     environment:
-      - ALLOWED_SCAN_ROOTS=/mnt/artifacts
+      - ALLOWED_SCAN_ROOTS=/mnt/artifacts,/mnt/out
 
 volumes:
   trivy-cache:
