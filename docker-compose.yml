@@ -1,0 +1,16 @@
+services:
+  trivy-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./tests/artifacts:/mnt/artifacts
+      - ./output:/mnt/out
+      - trivy-cache:/var/lib/trivy
+    environment:
+      - ALLOWED_SCAN_ROOTS=/mnt/artifacts
+
+volumes:
+  trivy-cache:
