@@ -57,3 +57,17 @@ def test_decision_logic_allow():
     
     decision = engine._make_decision(counts)
     assert decision.recommendation == Recommendation.ALLOW
+
+def test_path_validation_symlink_failure(tmp_path):
+    engine = ScanEngine()
+    from app.core import config
+    config.settings.ALLOWED_SCAN_ROOTS = str(tmp_path)
+    
+    target = tmp_path / "target.txt"
+    target.touch()
+    
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+    
+    with pytest.raises(ValueError, match="Symlinks are not allowed"):
+        engine._validate_path(str(link))

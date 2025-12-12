@@ -21,42 +21,71 @@ class ScanEngine:
     def _validate_path(self, path_str: str) -> Path:
         """
         Validates that the path is safe, exists, is a file, and is within allowed roots.
+        Prevents symlink traversal by rejecting any path component that is a symlink.
         Returns the resolved Path object.
         """
         try:
-            path = Path(path_str).resolve()
+            # 1. Basic sanity check
+            raw_path = Path(path_str)
+            if not raw_path.is_absolute():
+                 # For security, we might enforce absolute paths or resolve strictly from a known cwd, 
+                 # but usually inputs should be absolute or we treat them relative to cwd found via resolve later.
+                 # Let's check existence first on the raw path to ensure we can inspect components.
+                 pass
+
+            # 2. Strict Symlink Check on all components
+            # We must check the path itself and all its parents.
+            # Note: exists() return False for broken symlinks, but is_symlink() is True.
+            # We want to catch ANY symlink in the chain.
+            
+            # Check the file itself
+            if raw_path.is_symlink():
+                raise ValueError(f"Symlinks are not allowed: {raw_path.name}")
+            
+            # Check all parents
+            for parent in raw_path.parents:
+                if parent.is_symlink():
+                    raise ValueError(f"Path traversal via symlink not allowed: {parent}")
+
+            # 3. Resolve and Check Existence
+            # Now safe to resolve since we checked the input path's lineage (at least as provided).
+            # Note: A race condition is possible (TOCTOU), but for this PoC/Procurement gate, 
+            # this check is the standard mitigation pattern requested.
+            resolved_path = raw_path.resolve()
+
+            if not resolved_path.exists():
+                raise ValueError("File does not exist")
+
+            if not resolved_path.is_file():
+                raise ValueError("Path is not a regular file")
+
+            # 4. Check Allowed Roots
+            allowed = False
+            for root in settings.allowed_roots_list:
+                root_path = Path(root).resolve()
+                try:
+                    resolved_path.relative_to(root_path)
+                    allowed = True
+                    break
+                except ValueError:
+                    continue
+            
+            if not allowed:
+                 raise ValueError(f"Path is not within allowed scan roots: {settings.allowed_roots_list}")
+
+            return resolved_path
+
         except Exception as e:
-            raise ValueError(f"Invalid path: {e}")
-
-        if not path.exists():
-            raise ValueError("File does not exist")
-        
-        if not path.is_file():
-            raise ValueError("Path is not a regular file")
-            
-        if path.is_symlink():
-            raise ValueError("Symlinks are not allowed")
-
-        allowed = False
-        for root in settings.allowed_roots_list:
-            # Check if path is within root
-            try:
-                # relative_to checks if path is subpath of root
-                path.relative_to(Path(root).resolve())
-                allowed = True
-                break
-            except ValueError:
-                continue
-        
-        if not allowed:
-            raise ValueError(f"Path is not within allowed scan roots: {settings.allowed_roots_list}")
-            
-        return path
+            # Re-raise known ValueErrors, wrap others
+            if isinstance(e, ValueError):
+                raise
+            raise ValueError(f"Invalid path validation: {e}")
 
     def _parse_trivy_results(self, json_path: Path) -> Tuple[ScanCounts, int]:
         """
         Parses the raw Trivy JSON output to count vulnerabilities, secrets, etc.
         Returns ScanCounts and the total exit code context (simulated).
+        Resilient parsing: iterates all result blocks, handling missing keys safely.
         """
         counts = ScanCounts()
         
@@ -71,42 +100,48 @@ class ScanEngine:
             # Trivy JSON format usually has a "Results" list
             results = data.get("Results", [])
             
+            # If Results is None (can happen in empty scans), ensure it's iterable
+            if results is None:
+                results = []
+            
             for res in results:
-                target = res.get("Target", "")
-                
-                # Vulnerabilities
+                # 1. Vulnerabilities
                 vulns = res.get("Vulnerabilities", [])
-                for v in vulns:
-                    severity = v.get("Severity", "UNKNOWN")
-                    # Increment specific severity
-                    if severity == "CRITICAL":
-                        counts.vulnerabilities.CRITICAL += 1
-                    elif severity == "HIGH":
-                        counts.vulnerabilities.HIGH += 1
-                    elif severity == "MEDIUM":
-                        counts.vulnerabilities.MEDIUM += 1
-                    elif severity == "LOW":
-                        counts.vulnerabilities.LOW += 1
-                    else:
-                        counts.vulnerabilities.UNKNOWN += 1
+                if vulns:
+                    for v in vulns:
+                        severity = v.get("Severity", "UNKNOWN")
+                        if severity == "CRITICAL":
+                            counts.vulnerabilities.CRITICAL += 1
+                        elif severity == "HIGH":
+                            counts.vulnerabilities.HIGH += 1
+                        elif severity == "MEDIUM":
+                            counts.vulnerabilities.MEDIUM += 1
+                        elif severity == "LOW":
+                            counts.vulnerabilities.LOW += 1
+                        else:
+                            counts.vulnerabilities.UNKNOWN += 1
                 
-                # Secrets
-                # Secrets usually appear as Class: "secret" or Type: "secret" depending on scanner
-                # In standard trivy: "Secrets": [...] or "Vulnerabilities" [...]
-                # For `trivy fs`, secrets are often in a separate or same Result block with Class/Type.
-                # Let's count "Secrets" list if present
+                # 2. Secrets
+                # Secrets might be in "Secrets" key OR "Vulnerabilities" with specific Class, 
+                # but "Secrets" key is standard for 'trivy fs --scanners secret'
                 secrets = res.get("Secrets", [])
-                counts.secrets += len(secrets)
+                if secrets:
+                    counts.secrets += len(secrets)
                 
-                # Licenses - often in "Licenses" list if license scanner used
+                # 3. Licenses
                 licenses = res.get("Licenses", [])
-                # Or sometimes "Vulnerabilities" with Class="License"? 
-                # Trivy License scanning usually puts them in "Licenses" key in modern versions 
-                # or checks for Severity="HIGH"/"CRITICAL" on license issues.
-                # Assuming distinct list or counting via some other marker if needed.
-                # For this PoC, we count the "Licenses" array entries.
-                counts.licenses += len(licenses)
+                if licenses:
+                    counts.licenses += len(licenses)
 
+                # 4. Misconfigurations (Future proofing, even if not strictly used in current decision logic)
+                misconfigs = res.get("Misconfigurations", [])
+                if misconfigs:
+                    # We don't have a count bucket for this in the current model, 
+                    # but we safely parse it without error.
+                    pass
+
+        except json.JSONDecodeError:
+             logger.error(f"Invalid JSON in Trivy output: {json_path}")
         except Exception as e:
             logger.error(f"Failed to parse Trivy JSON: {e}")
             
