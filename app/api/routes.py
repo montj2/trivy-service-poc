@@ -7,11 +7,11 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-@router.get("/healthz")
+@router.get("/healthz", summary="Health Check", description="Returns 200 OK if service is running.")
 async def healthz():
     return {"status": "ok"}
 
-@router.get("/readyz")
+@router.get("/readyz", summary="Readiness Check", description="Checks if the underlying `trivy` binary is executable.")
 async def readyz():
     # Check if trivy is executable
     version = get_trivy_version()
@@ -19,7 +19,30 @@ async def readyz():
         raise HTTPException(status_code=503, detail="Trivy binary not found or not executable")
     return {"status": "ready", "trivy_version": version}
 
-@router.post("/v1/scan/fs", response_model=ScanResponse)
+@router.post(
+    "/v1/scan/fs", 
+    response_model=ScanResponse, 
+    summary="Scan File",
+    description="""
+    Performs a synchronous scan of a single file on disk.
+    
+    ### Request Body
+    - **path** (str): Absolute path to the file (must be within `ALLOWED_SCAN_ROOTS`).
+    - **scanners** (list): List of scanners to run.
+      - `vuln`: Vulnerability scanning
+      - `secret`: Secret scanning
+      - `license`: License scanning
+      - `misconfig`: Misconfiguration scanning
+    - **severity** (list): Severities to include.
+      - `CRITICAL`
+      - `HIGH`
+      - `MEDIUM`
+      - `LOW`
+      - `UNKNOWN`
+    - **timeout_seconds** (int): Max duration before aborting (default: 120).
+    - **ignore_unfixed** (bool): If true, ignores vulnerabilities without a fix.
+    """
+)
 async def scan_fs(request: ScanRequest):
     try:
         # Note: semaphore logic for concurrency should be handled here or in engine

@@ -10,7 +10,26 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
-app = FastAPI(title="Trivy FS Scan API", version="0.1.0")
+description = """
+Trivy FS Scan API is a containerized service for scanning local files using `trivy fs`.
+
+## Features
+* **File Scanning**: Scans single binary files for vulnerabilities, secrets, and configuration issues.
+* **Policy Engine**: logical decision making (BLOCK/REVIEW/ALLOW) based on scan results.
+* **Persistence**: Saves raw Trivy JSON reports for audit trails.
+"""
+
+app = FastAPI(
+    title="Trivy FS Scan API",
+    description=description,
+    version="0.1.0",
+    contact={
+        "name": "Security Engineering",
+        "email": "seceng@example.com",
+    },
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
 app.include_router(router)
 

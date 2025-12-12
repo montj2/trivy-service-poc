@@ -39,6 +39,12 @@ docker run -d -p 8080:8080 \
   trivy-scan-api
 ```
 
+## API Documentation
+
+FastAPI automatically generates interactive API documentation:
+- **Swagger UI**: [http://localhost:8080/docs](http://localhost:8080/docs) - Test endpoints directly in your browser.
+- **Redoc**: [http://localhost:8080/redoc](http://localhost:8080/redoc) - Alternative comprehensive documentation.
+
 ## API Usage
 
 ### Health Check
@@ -47,13 +53,23 @@ curl http://localhost:8080/healthz
 # {"status":"ok"}
 ```
 
-### Scan Request
+### Scan Request (Default)
 **POST** `/v1/scan/fs`
 
 ```json
 {
   "path": "/mnt/artifacts/app.exe",
   "severity": ["HIGH", "CRITICAL"],
+  "scanners": ["vuln", "secret"]
+}
+```
+
+### Scan Request (All Severities)
+To include everything (including LOW and UNKNOWN):
+```json
+{
+  "path": "/mnt/artifacts/app.exe",
+  "severity": ["UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"],
   "scanners": ["vuln", "secret"]
 }
 ```
